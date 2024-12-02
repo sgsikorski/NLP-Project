@@ -13,28 +13,34 @@ model_args = {
 }
 
 model_name = "emilyalsentzer/Bio_ClinicalBERT"
-tokenizer = AutoTokenizer.from_pretrained(
+_tokenizer = AutoTokenizer.from_pretrained(
     model_name,
     **model_args,
 )
 
-model = AutoModelForSequenceClassification.from_pretrained(model_name)
+_model = AutoModelForSequenceClassification.from_pretrained(model_name)
 
-classifier = pipeline(
+_classifier = pipeline(
     "text-classification",
-    model=model,
-    tokenizer=tokenizer,
+    model=_model,
+    tokenizer=_tokenizer,
     **model_args,
 )
 
 
-def chunk_text(text, max_length=512):
+def chunk_text(text, max_length=512, tokenizer=None):
+    if tokenizer is None:
+        tokenizer = _tokenizer
     tokens = tokenizer(text, truncation=False)["input_ids"]
     chunks = [tokens[i : i + max_length] for i in range(0, len(tokens), max_length)]
     return chunks
 
 
-def classify_chunks(chunks):
+def classify_chunks(chunks, tokenizer=None, classifier=None):
+    if tokenizer is None:
+        tokenizer = _tokenizer
+    if classifier is None:
+        classifier = _classifier
     scores = []
     for chunk in chunks:
         inputs = tokenizer.decode(chunk)
@@ -44,18 +50,22 @@ def classify_chunks(chunks):
             if result[0]["label"] == "LABEL_1"
             else -result[0]["score"]
         )
-    print(scores)
     return np.mean(scores)
 
 
 def generate_sentiment(entries):
-    labelMap = {"LABEL_0": "Negative", "LABEL_1": "Positive"}
     labels = []
     for i, entry in enumerate(entries):
         chunks = chunk_text(entry["patient"])
         average_score = classify_chunks(chunks)
-        label = "LABEL_1" if average_score > 0 else "LABEL_0"
-        labels.append({"label": labelMap[label], "score": average_score})
+        label = ""
+        if average_score > 0.5:
+            label = "POSITIVE"
+        elif average_score < -0.5:
+            label = "NEGATIVE"
+        else:
+            label = "NEUTRAL"
+        labels.append({"label": label, "score": average_score})
     return labels
 
 

@@ -5,6 +5,7 @@ tokenizer = AutoTokenizer.from_pretrained("Junaidb/medicalNER")
 model = AutoModelForTokenClassification.from_pretrained("Junaidb/medicalNER")
 
 
+# TODO: Filter out which entities are necessary
 def getEntity(text):
     inputs = tokenizer(text, return_tensors="pt")
     outputs = model(**inputs)
