@@ -1,0 +1,6 @@
+INFO:__main__:Loaded Dataset
+INFO:__main__:Add 10 pretrained sentiments
+INFO:__main__:Add 10 pretrained entities
+INFO:__main__:Split the dataset
+INFO:__main__:Loaded meta-llama/Llama-3.2-1B
+CRITICAL:__main__:Starting finetuning
