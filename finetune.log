@@ -1,6 +1,10 @@
 INFO:__main__:Loaded Dataset
 INFO:__main__:Add 10 pretrained sentiments
+INFO:__main__:Add padding token to tokenizer
+INFO:__main__:Add padding token to model
 INFO:__main__:Add 10 pretrained entities
 INFO:__main__:Split the dataset
 INFO:__main__:Loaded meta-llama/Llama-3.2-1B
 CRITICAL:__main__:Starting finetuning
+INFO:__main__:Finetuning done!
+INFO:__main__:Model and tokenizer saved to results
