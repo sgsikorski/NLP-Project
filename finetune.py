@@ -11,96 +11,72 @@ from transformers import Trainer, TrainingArguments
 from collections import defaultdict
 import torch
 import logging
+from findEntities import find_entities
+from util import getPrompt
+
 
 logger = logging.getLogger(__name__)
 
-def getPrompt(note, entities):
-    prompt = f"""
-You are an expert medical language model tasked with analyzing clinical notes to determine patient recovery outcomes. Given a clinical note and extracted entities, assess the sentiment of the note with respect to the patient's recovery risk.
-Clinical Note: {note}
-Entities: {entities}
-Assess the sentiment of the clinical note with respect to the patient's recovery risk.
-Positive: Indicators of improvement or a high likelihood of recovery.
-Neutral: Indicators of stability or uncertain outcomes.
-Negative: Indicators of deterioration or a low likelihood of recovery.
-"""
-    return prompt
 
-
-def finetune():
+def finetune(data, saveModels=False):
     torch.set_printoptions(profile="full")
     torch.autograd.set_detect_anomaly(True)
 
-    from datasets import load_dataset
-
-    data = load_dataset("zhengyun21/PMC-Patients")
-
-    logger.info("Loaded Dataset")
-
-    from generateSentiment import generate_sentiment
-
-    data["train"] = data["train"].select(range(10))
-
-    # Add a preliminary sentiment label to the dataset
-    sentiments = generate_sentiment(data["train"])
-    sentimentMap = {"NEGATIVE": 0, "NEUTRAL": 1, "POSITIVE": 2}
-    sentiments = [sentimentMap[sentiment["label"]] for sentiment in sentiments]
-    data["train"] = data["train"].add_column("label", sentiments)
-
-    logger.info(f"Add {len(sentiments)} pretrained sentiments")
-    from findEntities import find_entities
-
     entities = find_entities(data["train"])
-    # data["train"] = data["train"].add_column("entities", entities)
 
     from huggingface_hub import HfFolder
 
     token = HfFolder.get_token()
-
-    pretrained_model_name = "chaoyi-wu/PMC_LLAMA_7B"
     llama_model_name = "meta-llama/Llama-3.2-1B"
-    model_name = llama_model_name if token else pretrained_model_name
-    # model_name = pretrained_model_name
-    # pipe = pipeline(
-    #     "text-generation",
-    #     model=model_name,
-    #     device=-1
-    # )
+    if not token:
+        logger.error("Cannot load Llama model without HuggingFace token")
+        return
+    model_name = llama_model_name
 
     quant_config = BitsAndBytesConfig(load_in_8bit=True)
     llm_tokenizer = AutoTokenizer.from_pretrained(model_name)
     llm_model = AutoModelForSequenceClassification.from_pretrained(
-        model_name, num_labels=3,
-        quantization_config=quant_config
-    )# .to("cuda:0")
+        model_name, num_labels=3, quantization_config=quant_config
+    )
 
     llm_model = prepare_model_for_kbit_training(llm_model)
     lora_config = LoraConfig(
-        r = 8, lora_alpha=32, target_modules=["q_proj", "v_proj"], lora_dropout=0.1, bias="none"
+        r=8,
+        lora_alpha=32,
+        target_modules=["q_proj", "v_proj"],
+        lora_dropout=0.1,
+        bias="none",
     )
     llm_model = get_peft_model(llm_model, lora_config)
 
     if llm_tokenizer.pad_token is None:
-        llm_tokenizer.add_special_tokens({'pad_token': '[PAD]'})
+        llm_tokenizer.add_special_tokens({"pad_token": "[PAD]"})
         llm_model.resize_token_embeddings(len(llm_tokenizer))
         logger.info("Add padding token to tokenizer")
-    llm_tokenizer.pad_token = '[PAD]'
+    llm_tokenizer.pad_token = "[PAD]"
     if llm_model.config.pad_token_id is None:
         logger.info("Add padding token to model")
         llm_model.config.pad_token_id = llm_tokenizer.pad_token_id
 
     prompts = {"input_ids": [], "attention_mask": []}
     for note, entity_entry in zip(data["train"], entities):
-        result = llm_tokenizer(getPrompt(note["patient"], entity_entry), padding="max_length", truncation=True, max_length=256)
+        result = llm_tokenizer(
+            getPrompt(note["patient"], entity_entry),
+            padding="max_length",
+            truncation=True,
+            max_length=256,
+        )
         prompts["input_ids"].append(result["input_ids"])
         prompts["attention_mask"].append(result["attention_mask"])
 
     data["train"] = data["train"].add_column("input_ids", prompts["input_ids"])
-    data["train"] = data["train"].add_column("attention_mask", prompts["attention_mask"])
+    data["train"] = data["train"].add_column(
+        "attention_mask", prompts["attention_mask"]
+    )
 
     del prompts["input_ids"]
     del prompts["attention_mask"]
-    torch.cuda.empty_cache() 
+    torch.cuda.empty_cache()
 
     logger.info(f"Add {len(entities)} pretrained entities")
 
@@ -146,13 +122,17 @@ def finetune():
 
     sentiment_trainer.train()
     logger.info("Finetuning done!")
-    llm_model.save_pretrained("./results")
-    llm_tokenizer.save_pretrained("./results")
-    logger.info("Model and tokenizer saved to results")
+
+    if saveModels:
+        llm_model.save_pretrained("./results")
+        llm_tokenizer.save_pretrained("./results")
+        logger.info("Model and tokenizer saved to results")
+
+    return llm_model, llm_tokenizer
 
 
 if __name__ == "__main__":
     torch.cuda.empty_cache()
     torch.cuda.reset_peak_memory_stats()
-    logging.basicConfig(filename='finetune.log', level=logging.INFO, filemode='w')
+    logging.basicConfig(filename="finetune.log", level=logging.INFO, filemode="w")
     finetune()
