@@ -20,7 +20,7 @@ logger = logging.getLogger(__name__)
 def preprocessData(data):
     from generateSentiment import generate_sentiment
 
-    data["train"] = data["train"].filter(lambda x: len(x["patient"]) <= 250)
+    data["train"] = data["train"].filter(lambda x: len(x["patient"]) <= 200)
 
     # Add a preliminary sentiment label to the dataset
     sentiments = generate_sentiment(data["train"])
@@ -44,11 +44,18 @@ def main():
     data = preprocessData(data)
 
     if args.load:
+        ft_tokenizer = AutoTokenizer.from_pretrained("./results")
         ft_model = AutoModelForSequenceClassification.from_pretrained(
             "meta-llama/Llama-3.2-1B"
         )
+        #if ft_tokenizer.pad_token is None:
+        ft_tokenizer.add_special_tokens({"pad_token": "[PAD]"})
+        ft_model.resize_token_embeddings(len(ft_tokenizer))
+        ft_tokenizer.pad_token = "[PAD]"
+        # if ft_model.config.pad_token_id is None:
+        ft_model.config.pad_token_id = ft_tokenizer.pad_token_id
+
         ft_model = PeftModel.from_pretrained(ft_model, "./results")
-        ft_tokenizer = AutoTokenizer.from_pretrained("./results")
     elif args.train:
         ft_model, ft_tokenizer = finetune(data, args.save)
 
@@ -78,3 +85,6 @@ def main():
 
         logger.info(f"Base sentiment: {base_sentiment}")
         logger.info(f"Fine-tuned sentiment: {ft_sentiment}")
+
+if __name__ == '__main__':
+    main()
